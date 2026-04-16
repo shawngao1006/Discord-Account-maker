@@ -115,45 +115,58 @@ class DiscordGen:
                 continue
         raise NoSuchElementException('Unable to find a submit button')
 
+    def _react_set_value(self, element, value):
+        """Set value on a React-controlled input using JS event simulation."""
+        self.driver.execute_script("""
+            var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            nativeInputValueSetter.call(arguments[0], arguments[1]);
+            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+            arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+        """, element, value)
+
+    def _react_select_option(self, select_element, value):
+        """Set value on a React-controlled select using JS event simulation."""
+        self.driver.execute_script("""
+            var nativeSelectValueSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+            nativeSelectValueSetter.call(arguments[0], arguments[1]);
+            arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+        """, select_element, value)
+
     def register(self):
         self.driver.get('https://discord.com/register')
 
         free_print(f"{Fore.LIGHTMAGENTA_EX}[!]{Style.RESET_ALL} Loading Discord register page")
         WebDriverWait(self.driver, 20).until(
-            EC.presence_of_element_located((By.XPATH, "//input[@name='email' or @type='email']"))
+            EC.presence_of_element_located((By.XPATH, "//input[@type='email' or @name='email']"))
         )
+        time.sleep(1)
 
-        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} " + self.email)
+        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Filling email: " + self.email)
         email_input = self._find_input([
             "//input[@name='email']",
             "//input[@type='email']",
         ])
-        email_input.clear()
-        email_input.send_keys(self.email)
+        email_input.click()
+        self._react_set_value(email_input, self.email)
 
-        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} " + self.username)
-        username_input = self._find_input([
-            "//input[@name='username']",
-            "//input[@type='text' and not(@aria-hidden='true')]",
-            "//input[@placeholder='Username']",
+        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Filling display name: " + self.username)
+        # Discord now calls this "display name" - it's the first text input
+        display_name_input = self._find_input([
+            "//input[@name='global_name']",
+            "//input[@name='displayName']",
+            "//input[@placeholder='Display Name']",
+            "(//input[@type='text'])[1]",
         ])
-        username_input.clear()
-        username_input.send_keys(self.username)
+        display_name_input.click()
+        self._react_set_value(display_name_input, self.username)
 
-        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} " + self.password)
+        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Filling password")
         password_input = self._find_input([
             "//input[@name='password']",
             "//input[@type='password']",
         ])
-        password_input.clear()
-        password_input.send_keys(self.password)
-
-        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Submitting credentials")
-        try:
-            continue_btn = self._find_button(['Continue', 'Next', 'Sign Up', 'Create Account', 'Submit'])
-            continue_btn.click()
-        except NoSuchElementException:
-            password_input.send_keys(Keys.ENTER)
+        password_input.click()
+        self._react_set_value(password_input, self.password)
 
         free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Filling birthday")
         month_names = [
@@ -164,77 +177,65 @@ class DiscordGen:
         day_value = random.randint(1, 28)
         year_value = random.randint(1990, 2001)
 
-        try:
-            WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.XPATH, "//input[@name='birthday_month' or @placeholder='Month' or contains(@aria-label,'Month')]"))
-            )
-        except TimeoutException:
-            free_print(f"{Fore.LIGHTMAGENTA_EX}[!]{Style.RESET_ALL} Birthday fields not found, continuing manually.")
-
-        month_select = self._find_select([
+        # Try native select elements first
+        month_select_el = self._find_select([
             "//select[@name='birthday_month']",
-            "//select[contains(@aria-label,'Month')]",
+            "//select[contains(@aria-label,'Month') or contains(@aria-label,'month')]",
+            "(//select)[1]",
         ])
-        day_select = self._find_select([
+        day_select_el = self._find_select([
             "//select[@name='birthday_day']",
-            "//select[contains(@aria-label,'Day')]",
+            "//select[contains(@aria-label,'Day') or contains(@aria-label,'day')]",
+            "(//select)[2]",
         ])
-        year_select = self._find_select([
+        year_select_el = self._find_select([
             "//select[@name='birthday_year']",
-            "//select[contains(@aria-label,'Year')]",
+            "//select[contains(@aria-label,'Year') or contains(@aria-label,'year')]",
+            "(//select)[3]",
         ])
 
-        if month_select and day_select and year_select:
+        if month_select_el and day_select_el and year_select_el:
             try:
-                month_select.select_by_visible_text(month_names[month_value - 1])
+                self._react_select_option(month_select_el._el, str(month_value))
             except Exception:
-                try:
-                    month_select.select_by_value(str(month_value))
-                except Exception:
-                    pass
+                pass
             try:
-                day_select.select_by_visible_text(str(day_value))
+                self._react_select_option(day_select_el._el, str(day_value))
             except Exception:
-                try:
-                    day_select.select_by_value(str(day_value))
-                except Exception:
-                    pass
+                pass
             try:
-                year_select.select_by_visible_text(str(year_value))
+                self._react_select_option(year_select_el._el, str(year_value))
             except Exception:
-                try:
-                    year_select.select_by_value(str(year_value))
-                except Exception:
-                    pass
+                pass
         else:
-            month_input = self._find_input([
-                "//input[@name='birthday_month']",
-                "//input[contains(@placeholder,'Month')]",
-                "//input[contains(@aria-label,'Month')]",
-            ])
-            day_input = self._find_input([
-                "//input[@name='birthday_day']",
-                "//input[contains(@placeholder,'Day')]",
-                "//input[contains(@aria-label,'Day')]",
-            ])
-            year_input = self._find_input([
-                "//input[@name='birthday_year']",
-                "//input[contains(@placeholder,'Year')]",
-                "//input[contains(@aria-label,'Year')]",
-            ])
+            # Fallback: try text inputs for birthday
+            try:
+                month_input = self._find_input([
+                    "//input[@name='birthday_month']",
+                    "//input[contains(@placeholder,'Month')]",
+                ])
+                day_input = self._find_input([
+                    "//input[@name='birthday_day']",
+                    "//input[contains(@placeholder,'Day')]",
+                ])
+                year_input = self._find_input([
+                    "//input[@name='birthday_year']",
+                    "//input[contains(@placeholder,'Year')]",
+                ])
+                self._react_set_value(month_input, str(month_value))
+                self._react_set_value(day_input, str(day_value))
+                self._react_set_value(year_input, str(year_value))
+            except Exception:
+                free_print(f"{Fore.LIGHTMAGENTA_EX}[!]{Style.RESET_ALL} Could not auto-fill birthday - please fill it manually.")
 
-            month_input.clear()
-            month_input.send_keys(str(month_value))
-            day_input.clear()
-            day_input.send_keys(str(day_value))
-            year_input.clear()
-            year_input.send_keys(str(year_value))
-
+        time.sleep(0.5)
+        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Submitting registration form")
         try:
-            submit_btn = self._find_button(['Continue', 'Next', 'Sign Up', 'Create Account', 'Submit'])
-            submit_btn.click()
+            continue_btn = self._find_button(['Continue', 'Next', 'Sign Up', 'Create Account', 'Submit'])
+            continue_btn.click()
         except NoSuchElementException:
-            pass
+            password_input.send_keys(Keys.ENTER)
+
 
         while True:
             lock.acquire()
