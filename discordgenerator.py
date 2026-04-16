@@ -346,13 +346,10 @@ def worker(proxy=None, task_queue=None, invite_url=None):
         if email_type == 'plus':
             filtered_email = pfilter_email(new_email)
 
-        discord_usernames = []
-        with open('config/discord_usernames.txt', 'r', encoding='UTF-8') as username_txt:
-            lines = username_txt.readlines()
-            for line in lines:
-                discord_usernames.append(line.replace('\n', ''))
-
-        username = random.choice(discord_usernames)
+        # Generate random username with letters only
+        username_length = random.randint(6, 12)  # Random length between 6-12 characters
+        username = ''.join(random.choice(string.ascii_lowercase) for _ in range(username_length))
+        
         password = password_gen()
 
         if proxy:
