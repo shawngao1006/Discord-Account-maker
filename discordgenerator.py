@@ -131,14 +131,27 @@ class DiscordGen:
         time.sleep(0.2)
         ActionChains(self.driver).move_to_element(element).click().perform()
         time.sleep(0.3)
-        # Triple-click to select all then delete
-        ActionChains(self.driver).triple_click(element).perform()
+        # Select-all then delete (Selenium has no triple_click API)
+        element.send_keys(Keys.CONTROL + 'a')
         time.sleep(0.1)
-        element.send_keys(Keys.BACK_SPACE)
+        element.send_keys(Keys.DELETE)
         time.sleep(0.1)
         for char in str(value):
             element.send_keys(char)
             time.sleep(0.05)
+        time.sleep(0.2)
+
+    def _pick_combobox(self, element, text_value):
+        """Pick a value for Discord-style combobox controls."""
+        self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
+        ActionChains(self.driver).move_to_element(element).click().perform()
+        time.sleep(0.2)
+        element.send_keys(Keys.CONTROL + 'a')
+        element.send_keys(Keys.DELETE)
+        time.sleep(0.1)
+        element.send_keys(str(text_value))
+        time.sleep(0.2)
+        element.send_keys(Keys.ENTER)
         time.sleep(0.2)
 
     def _pick_select(self, select_el, value):
@@ -209,6 +222,19 @@ class DiscordGen:
         except NoSuchElementException:
             free_print(f"{Fore.LIGHTMAGENTA_EX}[!]{Style.RESET_ALL} Display name field not found - skipping")
 
+        # --- Username (random letters) ---
+        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Filling username: " + self.username)
+        try:
+            username_input = self._find_input([
+                "//input[@name='username']",
+                "//input[@aria-label='Username']",
+                "//input[contains(@placeholder,'Username')]",
+                "(//input[not(@type='hidden') and not(@type='email') and not(@type='password')])[2]",
+            ])
+            self._type_into(username_input, self.username)
+        except NoSuchElementException:
+            free_print(f"{Fore.LIGHTMAGENTA_EX}[!]{Style.RESET_ALL} Username field not found - skipping")
+
         # --- Password ---
         free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Filling password")
         password_input = self._find_input([
@@ -234,7 +260,18 @@ class DiscordGen:
             self._pick_select(selects[2], year_value)
             time.sleep(0.3)
         else:
-            free_print(f"{Fore.LIGHTMAGENTA_EX}[!]{Style.RESET_ALL} Birthday dropdowns not found - please fill manually")
+            month_names = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December'
+            ]
+            comboboxes = self.driver.find_elements(By.XPATH, "//*[@role='combobox' and not(@aria-hidden='true')]")
+            free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Found {len(comboboxes)} combobox controls")
+            if len(comboboxes) >= 3:
+                self._pick_combobox(comboboxes[0], month_names[month_value - 1])
+                self._pick_combobox(comboboxes[1], day_value)
+                self._pick_combobox(comboboxes[2], year_value)
+            else:
+                free_print(f"{Fore.LIGHTMAGENTA_EX}[!]{Style.RESET_ALL} Birthday controls not found - please fill manually")
 
         time.sleep(0.5)
         free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Submitting registration form")
