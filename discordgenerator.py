@@ -72,7 +72,10 @@ def set_console_title(title):
 class DiscordGen:
     def __init__(self, email, username, password, proxy=None):
         options = webdriver.ChromeOptions()
-        options.add_experimental_option("excludeSwitches", ["enable-logging"])
+        options.add_argument("--disable-logging")
+        options.add_argument("--log-level=3")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-plugins")
 
         if proxy:
             options.add_argument('--proxy-server=%s' % proxy)
