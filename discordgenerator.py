@@ -28,6 +28,15 @@ from src import GmailnatorRead, GmailnatorGet, dfilter_email, pfilter_email, fin
 
 init(convert=True)
 
+DISPLAY_NAMES = [
+    'James', 'Liam', 'Noah', 'Oliver', 'Elijah', 'William', 'Benjamin', 'Lucas',
+    'Henry', 'Alexander', 'Mason', 'Ethan', 'Daniel', 'Jacob', 'Logan', 'Jackson',
+    'Sebastian', 'Jack', 'Aiden', 'Owen', 'Samuel', 'Ryan', 'Nathan', 'Caleb',
+    'Emma', 'Olivia', 'Ava', 'Isabella', 'Sophia', 'Charlotte', 'Mia', 'Amelia',
+    'Harper', 'Evelyn', 'Abigail', 'Emily', 'Ella', 'Elizabeth', 'Camila', 'Luna',
+    'Sofia', 'Avery', 'Mila', 'Aria', 'Scarlett', 'Penelope', 'Layla', 'Chloe'
+]
+
 lock = threading.Lock()
 
 def password_gen(length=8, chars= string.ascii_letters + string.digits + string.punctuation):
@@ -84,6 +93,7 @@ class DiscordGen:
 
         self.email = email
         self.username = username
+        self.display_name = random.choice(DISPLAY_NAMES)
         self.password = password
 
     def _find_input(self, xpaths):
@@ -115,30 +125,51 @@ class DiscordGen:
                 continue
         raise NoSuchElementException('Unable to find a submit button')
 
-    def _type_field(self, element, value):
-        """Click, clear, and type into a field - works with React inputs."""
-        element.click()
+    def _type_into(self, element, value):
+        """Scroll to element, click it, wipe existing value, type char by char."""
+        self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
         time.sleep(0.2)
-        element.send_keys(Keys.CONTROL + 'a')
+        ActionChains(self.driver).move_to_element(element).click().perform()
+        time.sleep(0.3)
+        # Triple-click to select all then delete
+        ActionChains(self.driver).triple_click(element).perform()
         time.sleep(0.1)
-        element.send_keys(Keys.DELETE)
+        element.send_keys(Keys.BACK_SPACE)
         time.sleep(0.1)
-        for char in value:
+        for char in str(value):
             element.send_keys(char)
-            time.sleep(0.03)
+            time.sleep(0.05)
+        time.sleep(0.2)
 
-    def _set_select(self, select_el, value):
-        """Set a native select value with React event fallback."""
+    def _pick_select(self, select_el, value):
+        """Select option in a <select> element using multiple strategies."""
+        self.driver.execute_script("arguments[0].scrollIntoView(true);", select_el)
+        time.sleep(0.1)
+        # Strategy 1: Selenium Select
         try:
-            Select(select_el).select_by_value(value)
+            Select(select_el).select_by_value(str(value))
+            return
         except Exception:
             pass
+        # Strategy 2: JS native setter
         self.driver.execute_script("""
-            var setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
-            setter.call(arguments[0], arguments[1]);
-            arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
-            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-        """, select_el, value)
+            var s=Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set;
+            s.call(arguments[0], arguments[1]);
+            arguments[0].dispatchEvent(new Event('change',{bubbles:true}));
+            arguments[0].dispatchEvent(new Event('input',{bubbles:true}));
+        """, select_el, str(value))
+        # Strategy 3: ActionChains click + arrow keys to position
+        try:
+            idx = [o.get_attribute('value') for o in select_el.find_elements(By.TAG_NAME, 'option')].index(str(value))
+            ActionChains(self.driver).click(select_el).perform()
+            time.sleep(0.1)
+            select_el.send_keys(Keys.HOME)
+            for _ in range(idx):
+                select_el.send_keys(Keys.ARROW_DOWN)
+                time.sleep(0.03)
+            select_el.send_keys(Keys.RETURN)
+        except Exception:
+            pass
 
     def register(self):
         self.driver.get('https://discord.com/register')
@@ -147,27 +178,36 @@ class DiscordGen:
         WebDriverWait(self.driver, 25).until(
             EC.presence_of_element_located((By.XPATH, "//input[@type='email' or @name='email']"))
         )
-        time.sleep(2)
+        time.sleep(2.5)
 
-        # --- Email ---
+        # --- Debug: print all visible inputs so we can see the form structure ---
+        all_inputs = self.driver.find_elements(By.XPATH, "//input[not(@type='hidden')]")
+        all_selects = self.driver.find_elements(By.XPATH, "//select")
+        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Found {len(all_inputs)} inputs, {len(all_selects)} selects on page")
+        for i, inp in enumerate(all_inputs):
+            free_print(f"  Input {i}: type={inp.get_attribute('type')} name={inp.get_attribute('name')} placeholder={inp.get_attribute('placeholder')} aria-label={inp.get_attribute('aria-label')}")
+
+        # --- Email (index 0) ---
         free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Filling email: " + self.email)
         email_input = self._find_input([
             "//input[@name='email']",
             "//input[@type='email']",
+            "(//input[not(@type='hidden')])[1]",
         ])
-        self._type_field(email_input, self.email)
-        time.sleep(0.3)
+        self._type_into(email_input, self.email)
 
-        # --- Display Name / Username ---
-        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Filling display name: " + self.username)
-        display_input = self._find_input([
-            "//input[@name='global_name']",
-            "//input[@aria-label='Display Name']",
-            "//input[@placeholder='Display Name']",
-            "(//input[@type='text'])[1]",
-        ])
-        self._type_field(display_input, self.username)
-        time.sleep(0.3)
+        # --- Display Name (index 1 or named global_name) ---
+        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Filling display name: " + self.display_name)
+        try:
+            display_input = self._find_input([
+                "//input[@name='global_name']",
+                "//input[@aria-label='Display Name']",
+                "//input[contains(@placeholder,'Display')]",
+                "(//input[not(@type='hidden') and not(@type='email') and not(@type='password')])[1]",
+            ])
+            self._type_into(display_input, self.display_name)
+        except NoSuchElementException:
+            free_print(f"{Fore.LIGHTMAGENTA_EX}[!]{Style.RESET_ALL} Display name field not found - skipping")
 
         # --- Password ---
         free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Filling password")
@@ -175,25 +215,26 @@ class DiscordGen:
             "//input[@name='password']",
             "//input[@type='password']",
         ])
-        self._type_field(password_input, self.password)
-        time.sleep(0.3)
+        self._type_into(password_input, self.password)
 
-        # --- Birthday ---
+        # --- Birthday selects ---
         free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Filling birthday")
         month_value = random.randint(1, 12)
         day_value = random.randint(1, 28)
         year_value = random.randint(1990, 2001)
+        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Birthday: {month_value}/{day_value}/{year_value}")
 
         selects = self.driver.find_elements(By.XPATH, "//select")
+        free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Found {len(selects)} select dropdowns")
         if len(selects) >= 3:
-            self._set_select(selects[0], str(month_value))
-            time.sleep(0.2)
-            self._set_select(selects[1], str(day_value))
-            time.sleep(0.2)
-            self._set_select(selects[2], str(year_value))
-            time.sleep(0.2)
+            self._pick_select(selects[0], month_value)
+            time.sleep(0.3)
+            self._pick_select(selects[1], day_value)
+            time.sleep(0.3)
+            self._pick_select(selects[2], year_value)
+            time.sleep(0.3)
         else:
-            free_print(f"{Fore.LIGHTMAGENTA_EX}[!]{Style.RESET_ALL} Birthday dropdowns not found - fill manually.")
+            free_print(f"{Fore.LIGHTMAGENTA_EX}[!]{Style.RESET_ALL} Birthday dropdowns not found - please fill manually")
 
         time.sleep(0.5)
         free_print(f"{Fore.LIGHTMAGENTA_EX}[*]{Style.RESET_ALL} Submitting registration form")
@@ -340,7 +381,7 @@ def worker(proxy=None, task_queue=None, invite_url=None):
                 if verify_link:
                     d.verify_account(verify_link)
                 else:
-                    d.verify_account('https://www.gmailnator.com/inbox/#' + new_email)
+                    d.verify_account('https://guerrillamail.com/inbox')
 
                 if invite_url:
                     d.join_server(invite_url)
@@ -350,7 +391,7 @@ def worker(proxy=None, task_queue=None, invite_url=None):
             except Exception as e:
                 print('some error occured')
                 print(e)
-                d.verify_account('https://www.gmailnator.com/inbox/#' + new_email)
+                d.verify_account('https://guerrillamail.com/inbox')
                 if invite_url:
                     d.join_server(invite_url)
                 pause_console()
